@@ -9,7 +9,7 @@ CHANNEL_ID = -1002814237158
 MESSAGE_IDS = [2, 3]
 
 bot = Bot(token=TOKEN)
-application = Application.builder().token(TOKEN).build()
+application = Application.builder().token(TOKEN).updater(None).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[
