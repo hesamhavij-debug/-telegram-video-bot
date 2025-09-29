@@ -1,52 +1,65 @@
 import os
+import logging
 import asyncio
 from fastapi import FastAPI, Request
-from telegram import Bot, Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram import Update, Bot
+from telegram.ext import Application, CommandHandler, ContextTypes
 
-TOKEN = "7949012398:AAHck6r-9zmx1ZDuP0SbhEaWNRRRfow4798"
-CHANNEL_ID = -1002814237158
-MESSAGE_IDS = [2, 3]
+# فعال‌سازی لاگ‌ها
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-bot = Bot(token=TOKEN)
+# خواندن توکن
+TOKEN = os.environ.get("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is missing.")
+
+# ساخت اپلیکیشن تلگرام بدون polling
 application = Application.builder().token(TOKEN).updater(None).build()
+bot = Bot(token=TOKEN)
 
+# هندلر /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[
-        {"text": "📹 ارسال ویدیوها", "callback_data": "send_videos"}
-    ]]
-    await update.message.reply_text(
-        "سلام! روی دکمه زیر کلیک کن تا ویدیوها برات ارسال بشن.",
-        reply_markup={"inline_keyboard": keyboard}
-    )
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    for mid in MESSAGE_IDS:
-        await bot.forward_message(
-            chat_id=update.effective_chat.id,
-            from_chat_id=CHANNEL_ID,
-            message_id=mid
-        )
-        await asyncio.sleep(2)
+    await update.message.reply_text("سلام حنا! بات آماده ارسال ویدیو از کانال پرایوت هست 🚀")
 
 application.add_handler(CommandHandler("start", start))
-application.add_handler(CallbackQueryHandler(button_handler))
 
-async def lifespan(app: FastAPI):
-    webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/"
+# هندلر تست (دلخواه) برای بررسی آنلاین بودن
+async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("بات آنلاین و آماده‌ست ✅")
+application.add_handler(CommandHandler("ping", ping))
+
+# FastAPI اپلیکیشن
+app = FastAPI()
+
+# ثبت و حذف Webhook در lifecycle
+@app.on_event("startup")
+async def startup_event():
+    render_host = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+    if not render_host:
+        raise ValueError("RENDER_EXTERNAL_HOSTNAME missing in environment.")
+
+    webhook_url = f"https://{render_host}/"
+    logger.info(f"Setting webhook to {webhook_url}")
     await bot.set_webhook(webhook_url)
-    print(f"✅ Webhook set to: {webhook_url}")
-    yield
-    print("🛑 App shutting down...")
+    logger.info("Webhook set successfully.")
 
-app = FastAPI(lifespan=lifespan)
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("Shutdown: removing webhook.")
+    await bot.delete_webhook()
 
+# مسیر وبهوک
 @app.post("/")
-async def telegram_webhook(request: Request):
-    json_data = await request.json()
-    update = Update.de_json(json_data, bot)
+async def webhook_handler(request: Request):
+    data = await request.json()
+    update = Update.de_json(data, bot)
     await application.update_queue.put(update)
     return {"status": "ok"}
+
+# در Render از این استفاده میشه:
+# Procfile: web: uvicorn bot:app --host 0.0.0.0 --port $PORT
+# requirements.txt: python-telegram-bot==20.5, fastapi, uvicorn
